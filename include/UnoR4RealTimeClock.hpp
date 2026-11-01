@@ -22,6 +22,7 @@ enum class ClockResult : uint8_t {
   NotInitialized,
   InvalidDateTime,
   HardwareError,
+  SynchronizationTimedOut,
 };
 
 /** Owns initialization and access to the Uno R4 on-board real-time clock. */
@@ -52,6 +53,15 @@ class RealTimeClock {
 
   /** Returns a readable ISO 8601 value such as 2026-11-01T16:30:00. */
   String toIso8601() const;
+
+  /** Synchronizes UTC time from pool.ntp.org. The timeout is in milliseconds. */
+  ClockResult synchronizeFromNtp(uint32_t timeoutMilliseconds = 1500UL);
+
+  /** Reads the current RTC time converted to Indian Standard Time. */
+  ClockResult getIndianStandardTime(DateTime& dateTime) const;
+
+  /** Formats the current Indian Standard Time as YYYY-MM-DDTHH:MM:SS+05:30. */
+  String toIndianStandardIso8601() const;
 
  private:
   bool initialized_;
