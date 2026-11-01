@@ -1,5 +1,6 @@
 #include <Arduino.h>
 
+#include "UnoR4Button.hpp"
 #include "UnoR4Gpio.hpp"
 #include "UnoR4LedMatrix.hpp"
 #include "UnoR4Pump.hpp"
@@ -16,6 +17,7 @@ using UnoR4::Timekeeping::RealTimeClock;
 using UnoR4::Irrigation::Pump;
 using UnoR4::Irrigation::RelayLogic;
 using UnoR4::Display::LedMatrixClock;
+using UnoR4::Input::Button;
 
 static const NetworkCredentials networkCredentials = {
     IrrigatorWiFi::kNetworkName,
@@ -26,6 +28,7 @@ static Module wifiModule(networkCredentials, 15000UL, 10000UL);
 static RealTimeClock realTimeClock;
 static Pump pump(DigitalPin::D7, RelayLogic::ActiveLow);
 static LedMatrixClock ledMatrixClock;
+static Button manualPumpButton(DigitalPin::D5);
 static uint32_t lastClockPrintMilliseconds = 0;
 static bool wifiWasConnected = false;
 static uint32_t lastScheduledPumpRunDay = 0UL;
@@ -116,6 +119,22 @@ static void maintainPumpSchedule() {
   }
 }
 
+/** Toggles between an indefinite manual pump run and an immediate stop. */
+static void maintainManualPumpControl() {
+  if (!manualPumpButton.wasPressed()) {
+    return;
+  }
+
+  if (pump.isRunning()) {
+    pump.stop();
+    Serial.println("Manual pump stopped.");
+    return;
+  }
+
+  pump.start();
+  Serial.println("Manual pump started.");
+}
+
 // Runs once when the board powers on or resets. Put one-time hardware,
 // serial, and network initialization here.
 void setup() {
@@ -123,6 +142,7 @@ void setup() {
   DigitalGpio::configureAsOutput(DigitalPin::D13);
   pump.initialize();
   ledMatrixClock.initialize();
+  manualPumpButton.initialize();
 
   Serial.begin(115200);
   // Wait briefly so serial diagnostics are not lost after power-on or reset.
@@ -146,8 +166,10 @@ void setup() {
 void loop() {
   // Retry the Wi-Fi connection according to the module's configured interval if it drops.
   wifiModule.maintainConnection();
+  manualPumpButton.update();
   pump.maintain();
   maintainPumpSchedule();
+  maintainManualPumpControl();
   ledMatrixClock.displayCurrentTime(realTimeClock);
 
   // Detect a new Wi-Fi connection and synchronize once before the next loop.
