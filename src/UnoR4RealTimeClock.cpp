@@ -2,16 +2,12 @@
 
 #include <RTC.h>
 #include <WiFi.h>
-#include <WiFiUdp.h>
 
 namespace UnoR4 {
 namespace Timekeeping {
 
 namespace {
 
-static constexpr uint32_t kNtpLocalPort = 8888UL;
-static constexpr uint32_t kNtpPacketSize = 48UL;
-static constexpr uint32_t kUnixEpochOffset = 2208988800UL;
 static constexpr int32_t kIndianStandardOffsetSeconds = 19800;
 
 /** Returns true when year is divisible by four, excluding most century years. */
@@ -111,49 +107,16 @@ ClockResult RealTimeClock::synchronizeFromNtp(uint32_t timeoutMilliseconds) {
     return ClockResult::NotInitialized;
   }
 
-  IPAddress ntpServer;
-  if (WiFi.hostByName("pool.ntp.org", ntpServer) != 1) {
-    return ClockResult::HardwareError;
-  }
-
-  WiFiUDP udp;
-  if (!udp.begin(kNtpLocalPort)) {
-    return ClockResult::HardwareError;
-  }
-
-  uint8_t packet[kNtpPacketSize] = {};
-  packet[0] = 0b11100011;
-  packet[1] = 0;
-  packet[2] = 6;
-  packet[3] = 0xEC;
-
-  udp.beginPacket(ntpServer, 123);
-  udp.write(packet, kNtpPacketSize);
-  udp.endPacket();
-
   const uint32_t startedMilliseconds = millis();
   while (millis() - startedMilliseconds < timeoutMilliseconds) {
-    const int packetSize = udp.parsePacket();
-    if (packetSize < static_cast<int>(kNtpPacketSize)) {
+    const unsigned long unixTime = WiFi.getTime();
+    if (unixTime == 0UL) {
       delay(10);
       continue;
     }
-    udp.read(packet, kNtpPacketSize);
-    udp.stop();
-
-    const uint32_t secondsSince1900 =
-        static_cast<uint32_t>(packet[40]) << 24 |
-        static_cast<uint32_t>(packet[41]) << 16 |
-        static_cast<uint32_t>(packet[42]) << 8 |
-        static_cast<uint32_t>(packet[43]);
-    if (secondsSince1900 < kUnixEpochOffset) {
-      return ClockResult::HardwareError;
-    }
-
-    return setUnixTime(secondsSince1900 - kUnixEpochOffset);
+    return setUnixTime(static_cast<time_t>(unixTime));
   }
 
-  udp.stop();
   return ClockResult::SynchronizationTimedOut;
 }
 
