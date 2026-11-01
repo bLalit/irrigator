@@ -29,13 +29,13 @@ static RealTimeClock realTimeClock;
 static Pump pump(DigitalPin::D7, RelayLogic::ActiveLow);
 static LedMatrixClock ledMatrixClock;
 static Button manualPumpButton(DigitalPin::D5);
+static Button setPumpTimeButton(DigitalPin::D2);
+static Button increasePumpTimeButton(DigitalPin::D3);
+static Button decreasePumpTimeButton(DigitalPin::D4);
+static Button defaultPumpTimeButton(DigitalPin::D8);
 static uint32_t lastClockPrintMilliseconds = 0;
 static bool wifiWasConnected = false;
-static uint32_t lastScheduledPumpRunDay = 0UL;
 static uint32_t lastTimeDiagnosticsMilliseconds = 0UL;
-
-constexpr uint8_t kPumpStartHourIst = 19U;
-constexpr uint8_t kPumpStartMinuteIst = 03U;
 
 /** Synchronizes the RTC through NTP and reports whether IST was updated. */
 static void synchronizeClockFromNtp() {
@@ -91,31 +91,58 @@ static void printClockDiagnostics() {
   }
 }
 
-/** Returns a date key used to prevent starting the scheduled pump twice per day. */
-static uint32_t calendarDayKey(const UnoR4::Timekeeping::DateTime& now) {
-  return static_cast<uint32_t>(now.year) * 10000UL +
-         static_cast<uint32_t>(now.month) * 100UL +
-         static_cast<uint32_t>(now.day);
-}
-
-/** Starts the pump once at 18:25 IST when the RTC clock reaches that minute. */
+/** Updates the daily pump schedule maintained by the pump module. */
 static void maintainPumpSchedule() {
   UnoR4::Timekeeping::DateTime now{};
   if (realTimeClock.getIndianStandardTime(now) != ClockResult::Success) {
     return;
   }
 
-  const uint32_t today = calendarDayKey(now);
-  const bool scheduledMinute =
-      now.hour == kPumpStartHourIst &&
-      now.minute == kPumpStartMinuteIst;
+  if (pump.maintainSchedule(now, 5000UL)) {
+    Serial.print("Scheduled pump run started at ");
+    Serial.print(pump.scheduleHour());
+    Serial.print(":");
+    Serial.println(pump.scheduleMinute());
+  }
+}
 
-  if (scheduledMinute &&
-      today != lastScheduledPumpRunDay &&
-      !pump.isRunning()) {
-    pump.startFor(5000UL); // Start the pump for 5 seconds
-    lastScheduledPumpRunDay = today;
-    Serial.println("Scheduled pump run started at 18:25 IST.");
+/** Handles SET, UP, and DOWN while configuring the daily pump time. */
+static void maintainPumpTimeButtons() {
+  if (defaultPumpTimeButton.wasPressed()) {
+    pump.resetScheduleToDefault();
+    Serial.println("Pump schedule reset to 12:30 PM.");
+    return;
+  }
+
+  if (setPumpTimeButton.wasPressed()) {
+    pump.advanceScheduleSetup();
+
+    if (!pump.isScheduleSetupActive()) {
+      Serial.print("Pump schedule saved: ");
+      Serial.print(pump.scheduleHour());
+      Serial.print(":");
+      Serial.println(pump.scheduleMinute());
+    } else {
+      Serial.print("Set pump schedule ");
+      Serial.println(pump.scheduleSetupField() ==
+                           UnoR4::Irrigation::PumpScheduleField::Hour
+                           ? "hour."
+                           : "minute.");
+    }
+    return;
+  }
+
+  if (increasePumpTimeButton.wasPressed()) {
+    pump.adjustSchedule(1);
+  } else if (decreasePumpTimeButton.wasPressed()) {
+    pump.adjustSchedule(-1);
+  }
+
+  if (pump.isScheduleSetupActive()) {
+    Serial.print("Pump schedule: ");
+    Serial.print(pump.scheduleHour());
+    Serial.print(":");
+    Serial.println(pump.scheduleMinute());
   }
 }
 
@@ -143,6 +170,10 @@ void setup() {
   pump.initialize();
   ledMatrixClock.initialize();
   manualPumpButton.initialize();
+  setPumpTimeButton.initialize();
+  increasePumpTimeButton.initialize();
+  decreasePumpTimeButton.initialize();
+  defaultPumpTimeButton.initialize();
 
   Serial.begin(115200);
   // Wait briefly so serial diagnostics are not lost after power-on or reset.
@@ -167,10 +198,22 @@ void loop() {
   // Retry the Wi-Fi connection according to the module's configured interval if it drops.
   wifiModule.maintainConnection();
   manualPumpButton.update();
+  setPumpTimeButton.update();
+  increasePumpTimeButton.update();
+  decreasePumpTimeButton.update();
+  defaultPumpTimeButton.update();
   pump.maintain();
   maintainPumpSchedule();
   maintainManualPumpControl();
-  ledMatrixClock.displayCurrentTime(realTimeClock);
+  maintainPumpTimeButtons();
+
+  // While editing, show the pump schedule so UP/DOWN changes are visible.
+  // Outside setup mode, continue showing the current IST clock.
+  if (pump.isScheduleSetupActive()) {
+    ledMatrixClock.displayTime(pump.scheduleHour(), pump.scheduleMinute());
+  } else {
+    ledMatrixClock.displayCurrentTime(realTimeClock);
+  }
 
   // Detect a new Wi-Fi connection and synchronize once before the next loop.
   const bool wifiIsConnected = wifiModule.isConnected();
