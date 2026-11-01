@@ -23,6 +23,9 @@ class Pump {
   /** Starts the pump for a caller-selected duration without blocking. */
   bool startFor(uint32_t durationMilliseconds);
 
+  /** Starts the pump until stop() is called. */
+  bool start();
+
   /** Stops the pump immediately and clears the active run timer. */
   void stop();
 

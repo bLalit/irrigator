@@ -42,6 +42,19 @@ bool Pump::startFor(uint32_t durationMilliseconds) {
   return true;
 }
 
+/** Starts a manual run without an automatic stop time. */
+bool Pump::start() {
+  if (running_) {
+    return false;
+  }
+
+  startedAtMilliseconds_ = 0UL;
+  runDurationMilliseconds_ = 0UL;
+  running_ = true;
+  writeRelay(true);
+  return true;
+}
+
 /** Forces the relay inactive and clears timing information immediately. */
 void Pump::stop() {
   writeRelay(false);
@@ -53,6 +66,11 @@ void Pump::stop() {
 /** Stops the pump when the configured elapsed duration has passed. */
 void Pump::maintain() {
   if (!running_) {
+    return;
+  }
+
+  // A zero duration identifies a manual run with no automatic stop.
+  if (runDurationMilliseconds_ == 0UL) {
     return;
   }
 

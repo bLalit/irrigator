@@ -108,14 +108,15 @@ Do not back-feed an external supply into the 5V pin unless the required diode an
 
 ## Irrigator project pin assignments
 
-Until the irrigation hardware is selected, no project-specific pins should be treated as final. Suggested names in firmware should follow this pattern:
+The current irrigation connections are documented in [Hardware-Connections.md](Hardware-Connections.md).
+The current assignments are:
 
 ```cpp
-constexpr uint8_t SOIL_MOISTURE_SENSOR_PIN = A0;
-constexpr uint8_t VALVE_RELAY_1_PIN = D2;
-constexpr uint8_t VALVE_RELAY_2_PIN = D4;
-constexpr uint8_t VALVE_RELAY_3_PIN = D7;
-constexpr uint8_t VALVE_RELAY_4_PIN = D8;
+constexpr uint8_t pumpRelayPin = D7;
+constexpr uint8_t setButtonPin = D2;
+constexpr uint8_t upButtonPin = D3;
+constexpr uint8_t downButtonPin = D4;
+constexpr uint8_t runStopButtonPin = D5;
 ```
 
 Before wiring:
