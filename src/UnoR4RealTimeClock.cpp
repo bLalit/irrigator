@@ -1,11 +1,18 @@
 #include "UnoR4RealTimeClock.hpp"
 
 #include <RTC.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
 
 namespace UnoR4 {
 namespace Timekeeping {
 
 namespace {
+
+static constexpr uint32_t kNtpLocalPort = 8888UL;
+static constexpr uint32_t kNtpPacketSize = 48UL;
+static constexpr uint32_t kUnixEpochOffset = 2208988800UL;
+static constexpr int32_t kIndianStandardOffsetSeconds = 19800;
 
 /** Returns true when year is divisible by four, excluding most century years. */
 bool isLeapYear(int year) {
@@ -96,6 +103,58 @@ DayOfWeek calculateDayOfWeek(const DateTime& dateTime) {
 /** Creates an RTC wrapper in the uninitialized state. */
 RealTimeClock::RealTimeClock()
     : initialized_(false) {
+}
+
+/** Sends an NTP request, waits for a valid response, and sets the RTC to UTC. */
+ClockResult RealTimeClock::synchronizeFromNtp(uint32_t timeoutMilliseconds) {
+  if (!isInitialized()) {
+    return ClockResult::NotInitialized;
+  }
+
+  IPAddress ntpServer;
+  if (WiFi.hostByName("pool.ntp.org", ntpServer) != 1) {
+    return ClockResult::HardwareError;
+  }
+
+  WiFiUDP udp;
+  if (!udp.begin(kNtpLocalPort)) {
+    return ClockResult::HardwareError;
+  }
+
+  uint8_t packet[kNtpPacketSize] = {};
+  packet[0] = 0b11100011;
+  packet[1] = 0;
+  packet[2] = 6;
+  packet[3] = 0xEC;
+
+  udp.beginPacket(ntpServer, 123);
+  udp.write(packet, kNtpPacketSize);
+  udp.endPacket();
+
+  const uint32_t startedMilliseconds = millis();
+  while (millis() - startedMilliseconds < timeoutMilliseconds) {
+    const int packetSize = udp.parsePacket();
+    if (packetSize < static_cast<int>(kNtpPacketSize)) {
+      delay(10);
+      continue;
+    }
+    udp.read(packet, kNtpPacketSize);
+    udp.stop();
+
+    const uint32_t secondsSince1900 =
+        static_cast<uint32_t>(packet[40]) << 24 |
+        static_cast<uint32_t>(packet[41]) << 16 |
+        static_cast<uint32_t>(packet[42]) << 8 |
+        static_cast<uint32_t>(packet[43]);
+    if (secondsSince1900 < kUnixEpochOffset) {
+      return ClockResult::HardwareError;
+    }
+
+    return setUnixTime(secondsSince1900 - kUnixEpochOffset);
+  }
+
+  udp.stop();
+  return ClockResult::SynchronizationTimedOut;
 }
 
 /** Initializes the on-board hardware clock and records whether it is ready. */
@@ -196,6 +255,43 @@ String RealTimeClock::toIso8601() const {
 
   char value[20];
   snprintf(value, sizeof(value), "%04d-%02u-%02uT%02u:%02u:%02u",
+           dateTime.year, dateTime.month, dateTime.day,
+           dateTime.hour, dateTime.minute, dateTime.second);
+  return String(value);
+}
+
+/** Converts the current UTC Unix time to a calendar value in IST. */
+ClockResult RealTimeClock::getIndianStandardTime(DateTime& dateTime) const {
+  time_t unixTime = 0;
+  const ClockResult result = getUnixTime(unixTime);
+  if (result != ClockResult::Success) {
+    return result;
+  }
+
+  unixTime += kIndianStandardOffsetSeconds;
+  struct tm* ist = gmtime(&unixTime);
+  if (ist == nullptr) {
+    return ClockResult::HardwareError;
+  }
+
+  dateTime.year = ist->tm_year + 1900;
+  dateTime.month = static_cast<uint8_t>(ist->tm_mon + 1);
+  dateTime.day = static_cast<uint8_t>(ist->tm_mday);
+  dateTime.hour = static_cast<uint8_t>(ist->tm_hour);
+  dateTime.minute = static_cast<uint8_t>(ist->tm_min);
+  dateTime.second = static_cast<uint8_t>(ist->tm_sec);
+  return ClockResult::Success;
+}
+
+/** Formats current UTC-derived IST time with the ISO 8601 IST offset suffix. */
+String RealTimeClock::toIndianStandardIso8601() const {
+  DateTime dateTime{};
+  if (getIndianStandardTime(dateTime) != ClockResult::Success) {
+    return String();
+  }
+
+  char value[26];
+  snprintf(value, sizeof(value), "%04d-%02u-%02uT%02u:%02u:%02u+05:30",
            dateTime.year, dateTime.month, dateTime.day,
            dateTime.hour, dateTime.minute, dateTime.second);
   return String(value);
