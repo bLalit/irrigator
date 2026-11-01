@@ -55,7 +55,7 @@ class RealTimeClock {
   String toIso8601() const;
 
   /** Synchronizes UTC time from pool.ntp.org. The timeout is in milliseconds. */
-  ClockResult synchronizeFromNtp(uint32_t timeoutMilliseconds = 1500UL);
+  ClockResult synchronizeFromNtp(uint32_t timeoutMilliseconds = 5000UL);
 
   /** Reads the current RTC time converted to Indian Standard Time. */
   ClockResult getIndianStandardTime(DateTime& dateTime) const;
