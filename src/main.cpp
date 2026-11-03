@@ -34,8 +34,11 @@ static Button increasePumpTimeButton(DigitalPin::D3);
 static Button decreasePumpTimeButton(DigitalPin::D4);
 static Button defaultPumpTimeButton(DigitalPin::D8);
 static uint32_t lastClockPrintMilliseconds = 0;
+static uint32_t lastClockSyncMilliseconds = 0UL;
 static bool wifiWasConnected = false;
 static uint32_t lastTimeDiagnosticsMilliseconds = 0UL;
+
+constexpr uint32_t kClockSyncIntervalMilliseconds = 60UL * 60UL * 1000UL;
 
 /** Synchronizes the RTC through NTP and reports whether IST was updated. */
 static void synchronizeClockFromNtp() {
@@ -189,6 +192,7 @@ void setup() {
 
   wifiWasConnected = wifiModule.isConnected();
   synchronizeClockFromNtp();
+  lastClockSyncMilliseconds = millis();
   ledMatrixClock.displayCurrentTime(realTimeClock);
 }
 
@@ -219,8 +223,16 @@ void loop() {
   const bool wifiIsConnected = wifiModule.isConnected();
   if (wifiIsConnected && !wifiWasConnected) {
     synchronizeClockFromNtp();
+    lastClockSyncMilliseconds = millis();
   }
   wifiWasConnected = wifiIsConnected;
+
+  // Correct for RTC crystal drift while Wi-Fi remains continuously connected.
+  if (wifiIsConnected &&
+      millis() - lastClockSyncMilliseconds >= kClockSyncIntervalMilliseconds) {
+    synchronizeClockFromNtp();
+    lastClockSyncMilliseconds = millis();
+  }
 
   if (realTimeClock.isInitialized() &&
       millis() - lastClockPrintMilliseconds >= 30000UL) {
